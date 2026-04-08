@@ -1,3 +1,4 @@
 node_modules/
+.env
 output/*.md
 data/candidates.md

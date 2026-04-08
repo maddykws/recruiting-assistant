@@ -3,9 +3,15 @@
 ## What This Is
 An AI-powered healthcare candidate sourcing tool. The user pastes a Job Description (or gives a quick command) and Claude Code:
 1. Parses the JD directly (no API — Claude IS the AI)
-2. Runs data-fetcher scripts to pull candidates from NPI Registry, Doximity, Healthgrades
-3. Scores and ranks candidates against the JD
-4. Saves a report to output/ and updates data/candidates.md
+2. Runs data-fetcher scripts to pull candidates from NPI Registry, LinkedIn, Doximity, Healthgrades
+3. Each script uses Apify as primary (proxies + anti-bot) with Playwright as automatic fallback
+4. Scores and ranks candidates against the JD
+5. Saves a report to output/ and updates data/candidates.md
+
+## Scraper Strategy
+- **Apify primary**: handles proxies, anti-bot detection, JS rendering — more reliable
+- **Playwright fallback**: kicks in automatically if Apify fails or token is missing
+- APIFY_TOKEN is stored in `.env` — scripts load it automatically
 
 ## Trigger Patterns
 Activate this workflow when the user:
@@ -57,24 +63,31 @@ node lib/search-npi.mjs --specialty "{specialty}" --state "{state_code}" --limit
 ```
 Parse the JSON output. Each result has: npi, full_name, credential, specialty, phone, city, state, address.
 
-### Step 3 — Run Doximity Scrape
+### Step 3 — Run LinkedIn Search
+```bash
+node lib/search-linkedin.mjs --specialty "{specialty}" --location "{city}, {state_code}"
+```
+Parse JSON output. Each result has: full_name, specialty, hospital, headline, linkedin_url.
+Note: Apify actor returns richer profile data. X-Ray fallback returns URL-only (name hint from slug).
+
+### Step 4 — Run Doximity Scrape
 ```bash
 node lib/scrape-doximity.mjs --specialty "{specialty}" --location "{city}, {state_code}"
 ```
 Parse JSON output. Each result has: full_name, specialty, hospital, location, doximity_url.
 
-### Step 4 — Run Healthgrades Scrape
+### Step 5 — Run Healthgrades Scrape
 ```bash
 node lib/scrape-healthgrades.mjs --specialty "{specialty}" --location "{city}, {state_code}"
 ```
 Parse JSON output. Each result has: full_name, specialty, hospital, address, phone, rating, healthgrades_url.
 
-### Step 5 — Merge & Dedup
-- Combine all three source arrays
+### Step 6 — Merge & Dedup
+- Combine all four source arrays (NPI + LinkedIn + Doximity + Healthgrades)
 - Dedup by NPI first, then by normalized name (lowercase, no punctuation)
-- When merging duplicates: prefer NPI phone over scraped phone, combine URLs
+- When merging duplicates: prefer NPI phone, combine all URLs (linkedin_url, doximity_url, healthgrades_url)
 
-### Step 6 — Score Each Candidate (YOU do this — no API needed)
+### Step 7 — Score Each Candidate (YOU do this — no API needed)
 For each candidate, score 1-10 based on:
 - **Specialty match** (0-4 pts): Exact match = 4, subspecialty match = 3, related = 2
 - **Location** (0-3 pts): Same city = 3, same state = 2, adjacent state = 1
@@ -85,7 +98,7 @@ Also write:
 - `match_reason` — 1 sentence why they're a strong fit
 - `outreach_line` — 1 personalized opener for a cold message (mention their specialty + location + the opportunity)
 
-### Step 7 — Save Report
+### Step 8 — Save Report
 Write to `output/{YYYY-MM-DD}-{specialty-slug}-{state}.md`:
 
 ```markdown
@@ -94,10 +107,10 @@ Write to `output/{YYYY-MM-DD}-{specialty-slug}-{state}.md`:
 **Specialty:** {specialty}
 **Location:** {location}
 **Date:** {date}
-**Total Found:** {count} ({npi_count} NPI + {doximity_count} Doximity + {healthgrades_count} Healthgrades)
+**Total Found:** {count} ({npi_count} NPI + {linkedin_count} LinkedIn + {doximity_count} Doximity + {healthgrades_count} Healthgrades)
 
 ## Top Candidates (Score 7+)
-| # | Name | Credential | Specialty | City | Phone | Score | Doximity | Healthgrades |
+| # | Name | Credential | Specialty | City | Phone | Score | LinkedIn | Doximity | Healthgrades |
 |---|------|-----------|-----------|------|-------|-------|----------|--------------|
 ...
 
@@ -109,14 +122,14 @@ Write to `output/{YYYY-MM-DD}-{specialty-slug}-{state}.md`:
 [detailed section with match_reason and outreach_line for top candidates]
 ```
 
-### Step 8 — Update Tracker
+### Step 9 — Update Tracker
 Append new candidates to `data/candidates.md` (skip if NPI already exists in file):
 
 ```
 | {name} | {credential} | {specialty} | {city}, {state} | {phone} | {score} | {doximity_url} | {healthgrades_url} | {job_title} | {date} |
 ```
 
-### Step 9 — Show Summary in Chat
+### Step 10 — Show Summary in Chat
 Output a clean table of top candidates (score 7+) directly in the chat response, plus a link to the full report file.
 
 ---
