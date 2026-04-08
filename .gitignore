@@ -3,3 +3,5 @@ node_modules/
 output/*.md
 data/candidates.md
 data/recruiting.db
+data/recruiting.db-shm
+data/recruiting.db-wal
